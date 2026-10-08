@@ -17,4 +17,12 @@ The pin workflow in myllm-assets only re-pins its own URLs, so step 2 is done by
 |---|---|
 | space-range | ~2 MB |
 
+## Gallery images (`apps/`)
+
+Every banner (`apps/<slug>.jpg`), icon (`apps/icons/<slug>.jpg`) and app art folder (`apps/mochi/`, `apps/draw/`, ...) lives here too, about 32 MB. Manifest entries and apps load them from raw `main`, so a new image is live as soon as it's pushed:
+
+    https://raw.githubusercontent.com/TeamDzX/myllm-assets-xl/main/apps/<slug>.jpg
+
+A new app's banner and icon are committed here, not in myllm-assets.
+
 Same licence as myllm-assets (source-available, see LICENSE).
