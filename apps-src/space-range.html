@@ -25,6 +25,7 @@ html,body{height:100%;overflow:hidden;background:#05060d;font-family:-apple-syst
 .mult{position:absolute;top:calc(126px + env(safe-area-inset-top));left:calc(16px + env(safe-area-inset-left));display:none;font-size:13px;font-weight:900;color:#ffd23f;text-shadow:0 0 12px rgba(255,210,63,.85);animation:ragepulse .5s infinite}
 .scrapchip{font-size:11px;font-weight:800;color:#ffd23f;margin-top:3px;letter-spacing:.04em}
 .rangeExit{position:fixed;left:calc(16px + env(safe-area-inset-left));top:calc(58px + env(safe-area-inset-top));z-index:6;border:1px solid rgba(255,210,63,.4);background:rgba(10,16,30,.75);color:#ffd23f;font-size:11.5px;font-weight:800;letter-spacing:.06em;border-radius:10px;padding:7px 11px;font-family:inherit;cursor:pointer}
+.pausebtn svg{vertical-align:-1px;margin-right:6px}
 .rstats{margin-top:18px;width:min(280px,80vw)}
 .rrow{display:flex;justify-content:space-between;font-size:15px;color:#cfe0ff;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.08)}
 .rrow b{font-variant-numeric:tabular-nums}
@@ -179,6 +180,15 @@ html,body{height:100%;overflow:hidden;background:#05060d;font-family:-apple-syst
 </div>
 
 <button class="rangeExit" id="rangeExit" style="display:none">End drill</button>
+<button class="rangeExit pausebtn" id="pauseBtn" style="display:none" aria-label="Pause"><svg width="9" height="10" viewBox="0 0 9 10" fill="currentColor"><rect width="3" height="10" rx="1"/><rect x="6" width="3" height="10" rx="1"/></svg>Pause</button>
+
+<div class="overlay hide" id="pauseov" style="z-index:13">
+  <div class="title" style="font-size:34px">PAUSED</div>
+  <div class="subtitle" id="pauseStats"></div>
+  <button class="big" id="pResume">Back to the fight</button>
+  <button class="big alt" id="pEnd">End run</button>
+  <button class="big alt" id="pClose" style="display:none">Close Space Range</button>
+</div>
 
 <div class="overlay gover hide" id="victory" style="z-index:14">
   <div class="title" style="background:linear-gradient(180deg,#8affdc,#ffd23f);-webkit-background-clip:text;background-clip:text">SIGNAL<br>TERMINATED</div>
@@ -1398,6 +1408,7 @@ function frame(ts){
   var dt=rdt;
   if(hitStopT>0){hitStopT-=rdt;dt=0;}                    // hit-stop freeze
   else if(sloMoT>0){sloMoT-=rdt;dt=rdt*0.35;}            // slow-mo
+  syncPauseBtn();
   if(running&&!paused&&!victoryOpen)coolGuns(dt);   // keeps cooling even inside the armory
   if(running&&!paused&&!armoryOpen&&!victoryOpen&&rangeMode){
     updateRange(dt);
@@ -1674,7 +1685,27 @@ function retireRun(){
   victoryOpen=false;el('victory').classList.add('hide');
   gameOver();
 }
+/* The way out of a run: play hides MyLLM's title bar (and its Done), so
+   pausing hands the bar back and offers resume, end the run, or close. */
+function pauseGame(){
+  if(!running||paused||rangeMode||victoryOpen)return;
+  if(armoryOpen)closeArmory();
+  paused=true;musicStop();syncChrome(false);
+  el('pauseStats').innerHTML='Score <b style="color:#8affdc">'+score+'</b> · Wave '+wave+(ngPlus?(' · NG+'+ngPlus):'');
+  el('pClose').style.display=typeof window.myllmClose==='function'?'block':'none';
+  el('pauseov').classList.remove('hide');haptic('selection');
+}
+function resumeGame(){
+  if(!paused)return;
+  paused=false;el('pauseov').classList.add('hide');syncChrome(true);musicStart();
+}
+var pauseShown=false;
+function syncPauseBtn(){
+  var on=running&&!paused&&!rangeMode&&!victoryOpen;
+  if(on!==pauseShown){pauseShown=on;el('pauseBtn').style.display=on?'block':'none';}
+}
 function gameOver(){
+  paused=false;el('pauseov').classList.add('hide');
   running=false;syncChrome(false);musicStop();el('bossbar').style.display='none';
   var qualifies=score>0&&(scores.length<5||score>scores[scores.length-1].s);
   el('hsEntry').style.display=qualifies?'block':'none';
@@ -1692,6 +1723,10 @@ el('rangeBtn').onclick=startRange;
 el('gdClose').onclick=closeGunDetail;
 document.getElementById('gundetail').addEventListener('click',function(e){if(e.target===this)closeGunDetail();});
 el('rangeExit').onclick=function(){if(rangeMode)endRange();};
+el('pauseBtn').onclick=pauseGame;el('pResume').onclick=resumeGame;el('pEnd').onclick=gameOver;
+el('pClose').onclick=function(){try{var p=window.myllmClose();if(p&&p.catch)p.catch(function(){})}catch(e){}};
+document.addEventListener('visibilitychange',function(){if(document.hidden)pauseGame()});
+addEventListener('keydown',function(e){if(e.key==='Escape'){if(paused)resumeGame();else pauseGame();}});
 el('rAgain').onclick=startRange;
 el('rBack').onclick=function(){el('rangeend').classList.add('hide');el('start').classList.remove('hide');targets=[];};
 el('hsSave').onclick=saveScore;
