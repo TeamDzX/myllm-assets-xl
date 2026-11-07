@@ -2320,14 +2320,16 @@ updHUD();
   // a tap is a user gesture: prime playback for strict autoplay policies
   addEventListener('pointerdown',function(){var r=vids[curWorld().bg];if(r&&!r.dead&&r.v.paused&&want())r.v.play().catch(function(){});},true);
 })();
-/* CINE: short cinematic cut-ins streamed from myllm-assets-xl (ComfyUI FLUX + Wan 2.2 clips).
+/* CINE: short cinematic cut-ins streamed from myllm-media / myllm-assets-xl (ComfyUI FLUX + Wan 2.2 clips).
    boss17_N  - the world's boss powering up, played when it spawns (name card + tap to skip)
    enter17_N - a fly-in to the world, played behind the LEVEL story card when you descend
    Clips preload a level ahead; a clip that isn't fully ready (offline, slow, failed) is simply
    skipped and the game runs exactly as before. The game is frozen (hit-stop) while one plays. */
 (function(){
-  var SRCS=["https://cdn.jsdelivr.net/gh/TeamDzX/myllm-assets-xl@main/apps/space-range/",
-            "https://raw.githubusercontent.com/TeamDzX/myllm-assets-xl/main/apps/space-range/"];
+  // myllm-media holds new clips (xl is near jsDelivr's 50 MB cap); the first boss intros live in xl
+  var SRCS=["https://cdn.jsdelivr.net/gh/TeamDzX/myllm-media@main/apps/space-range/",
+            "https://cdn.jsdelivr.net/gh/TeamDzX/myllm-assets-xl@main/apps/space-range/",
+            "https://raw.githubusercontent.com/TeamDzX/myllm-media/main/apps/space-range/"];
   var N=10,live={},order=[],active=null;
   var st=document.createElement('style');
   st.textContent='#cine{position:fixed;inset:0;z-index:9;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;overflow:hidden}'+
