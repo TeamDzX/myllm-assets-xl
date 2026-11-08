@@ -2822,7 +2822,8 @@ updHUD();
 })();
 /* CINE: short cinematic cut-ins streamed from myllm-media / myllm-assets-xl (ComfyUI FLUX + Wan 2.2 clips).
    boss17_N  - the world's boss powering up, played when it spawns (name card + tap to skip)
-   enter17_N - a fly-in to the world, played behind the LEVEL story card when you descend
+   enter17_N - a fly-through of world N, played as you LEAVE it; the game then morphs the scene into the next world
+               (which clip plays when leaving each world is set in LEAVE below)
    Clips preload a level ahead; a clip that isn't fully ready (offline, slow, failed) is simply
    skipped and the game runs exactly as before. The game is frozen (hit-stop) while one plays. */
 (function(){
@@ -2831,6 +2832,10 @@ updHUD();
             "https://cdn.jsdelivr.net/gh/TeamDzX/myllm-assets-xl@main/apps/space-range/",
             "https://raw.githubusercontent.com/TeamDzX/myllm-media/main/apps/space-range/"];
   var N=10,live={},order=[],active=null;
+  // clip played when leaving world i (index = world you just cleared)
+  var LEAVE=['enter17_0','enter17_1','enter17_2','enter17_3','enter17_4','enter17_5','enter17_6','enter17_7','enter17_8','enter17_9'];
+  var storyAfter=false;
+  setTimeout(function(){clip('intro17');},1500);   // the arrival clip for 'Enter the range'
   var st=document.createElement('style');
   st.textContent='#cine{position:fixed;inset:0;z-index:9;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;overflow:hidden}'+
     '#cine.on{opacity:1;pointer-events:auto}#cine video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}'+
@@ -2898,7 +2903,9 @@ updHUD();
     hitStopT=Math.max(hitStopT,9);requestAnimationFrame(tick);
   }
   function hide(){
-    if(!active)return;var v=active.rec.v;active=null;
+    if(!active)return;var v=active.rec.v;
+    if(storyAfter){storyAfter=false;worldFade=0;var so=document.getElementById('storyov');if(so){so.classList.remove('show');void so.offsetWidth;so.classList.add('show');}}   // now morph into the new world
+    active=null;
     if(pendingVictory){pendingVictory=false;setTimeout(function(){if(running)victory();},300);}
     hitStopT=0;ov.classList.remove('on');
     setTimeout(function(){if(!active||active.rec.v!==v){try{v.pause();}catch(e){}v.classList.remove('front');}},400);
@@ -2910,7 +2917,7 @@ updHUD();
     spawnBossOrig.apply(this,arguments);
     var wi=(level-1)%N,bd=BOSS_DEFS[wi];
     show(live['boss17_'+wi],bd.name,curWorld().name.toUpperCase()+'  ·  BOSS',bd.acc,'');
-    clip('enter17_'+((wi+1)%N));             // the next world's fly-in loads during the fight
+    clip(LEAVE[wi]);                           // the walk out of this world loads during the fight
     clip('down17_'+wi);                        // and its defeat
   };
   // boss down: let the break-apart play for a beat, then the defeat cinematic
@@ -2931,7 +2938,10 @@ updHUD();
     startWaveOrig.apply(this,arguments);
     var nw=(level-1)%N;
     if(window.CINE_NOENTER)return;               // Boss Rush / Winter Siege run their own cut-ins
-    if(nw!==pw){var w=curWorld();showWait(live['enter17_'+nw],w.name.toUpperCase(),'LEVEL '+level,w._b,w.story);}
+    if(wave===1&&level===1&&!ngPlus&&!(window.MEDALS&&MEDALS.daily&&MEDALS.daily())){var w0=WORLDS[0];   // a fresh run: arrive by lift
+      show(live['intro17']||clip('intro17'),'SPACE RANGE','THE TRAINING BASEMENT',w0._b,w0.story);}
+    if(nw!==pw){var w=curWorld(),pwd=WORLDS[pw];
+      if(show(live[LEAVE[pw]],pwd.name.toUpperCase()+' CLEARED','LEVEL '+(level-1)+'  ·  COMPLETE',pwd._b,'Onward to '+w.name+'…'))storyAfter=true;}
     clip('boss17_'+nw);                        // this world's boss intro loads during its waves
   };
   window.CINE={live:function(){return Object.keys(live).map(function(k){return k+':'+(live[k].ok?'ok':live[k].dead?'dead':'…');});},
