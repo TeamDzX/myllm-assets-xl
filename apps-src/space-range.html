@@ -2695,6 +2695,22 @@ updHUD();
     hitStopT=Math.max(hitStopT,9);tick();
     return true;
   }
+  // phones often stop buffering a clip that isn't playing (another video took the slot): instead of
+  // skipping it, hold the game for up to 2.5 s while it starts, then play it
+  var waiting=null;
+  function showWait(rec,a,b,c,d){
+    if(!rec||rec.dead)return false;
+    if(rec.ok)return show(rec,a,b,c,d);
+    if(active||waiting||!running||paused||(window.CINE_BLOCK&&CINE_BLOCK()))return false;
+    var v=rec.v,done=false;waiting=rec;hitStopT=Math.max(hitStopT,9);
+    function fin(ok){if(done)return;done=true;waiting=null;clearTimeout(to);v.removeEventListener('playing',go);v.removeEventListener('canplay',go);
+      hitStopT=0;if(ok){rec.ok=true;show(rec,a,b,c,d);}else if(pendingVictory&&!active){pendingVictory=false;victory();}}
+    function go(){fin(true);}
+    v.addEventListener('playing',go);v.addEventListener('canplay',go);
+    try{var p=v.play();if(p&&p.catch)p.catch(function(){});}catch(e){}
+    var to=setTimeout(function(){fin(false);},2500);
+    return true;
+  }
   function tick(){
     if(!active)return;
     var t=(performance.now()-active.t0)/1000;
@@ -2723,22 +2739,22 @@ updHUD();
     killOrig.apply(this,arguments);
     if(r&&r.kind==='boss'){var wi=r.bossWorld,bd=BOSS_DEFS[wi];
       downT=setTimeout(function(){downT=null;
-        show(live['down17_'+wi],bd.name+' DOWN',curWorld().name.toUpperCase()+'  ·  VICTORY',bd.acc,'');
-        if(!active&&pendingVictory){pendingVictory=false;victory();}},1100);}
+        showWait(live['down17_'+wi],bd.name+' DOWN',curWorld().name.toUpperCase()+'  ·  VICTORY',bd.acc,'');
+        if(!active&&!waiting&&pendingVictory){pendingVictory=false;victory();}},1100);}
   };
   victory=function(){
-    if(active||downT){pendingVictory=true;return;}   // the final boss's fall plays first
+    if(active||downT||waiting){pendingVictory=true;return;}   // the final boss's fall plays first
     victoryOrig.apply(this,arguments);
   };
   startWave=function(){
     var pw=(level-1)%N;
     startWaveOrig.apply(this,arguments);
     var nw=(level-1)%N;
-    if(nw!==pw){var w=curWorld();show(live['enter17_'+nw],w.name.toUpperCase(),'LEVEL '+level,w._b,w.story);}
+    if(nw!==pw){var w=curWorld();showWait(live['enter17_'+nw],w.name.toUpperCase(),'LEVEL '+level,w._b,w.story);}
     clip('boss17_'+nw);                        // this world's boss intro loads during its waves
   };
   window.CINE={live:function(){return Object.keys(live).map(function(k){return k+':'+(live[k].ok?'ok':live[k].dead?'dead':'…');});},
-               active:function(){return !!active;},busy:function(){return !!active||!!downT;}};
+               active:function(){return !!active;},busy:function(){return !!active||!!downT||!!waiting;}};
 })();
 /* MEDALS (v20): achievements with cinematic cut-ins, plus the death cam, Final Stand, the World 10 ending
    and the Daily Challenge. Clips stream from myllm-media; anything not loaded falls back to a still card,
@@ -2756,8 +2772,8 @@ updHUD();
    {id:'rampage',n:'Rampage',      d:'Fill the rage bar and go berserk',         t:'b',s:20, e:'⚡'},
    {id:'untouch',n:'Untouchable',  d:'Clear 3 waves in a row without a scratch', t:'s',s:50, e:'⬡'},
    {id:'mission',n:'Mission Ace',  d:'Complete 10 missions',                     t:'s',s:50, e:'★',goal:10,stat:'missions'},
-   {id:'arsenal',n:'Full Arsenal', d:'Unlock all 12 guns',                       t:'g',s:150,e:'⚙',big:1},
-   {id:'giant',  n:'Giant Slayer', d:'Bring down your first boss',               t:'s',s:60, e:'☠',big:1},
+   {id:'arsenal',n:'Full Arsenal', d:'Unlock all 12 guns',                       t:'g',s:150,e:'⚙'},
+   {id:'giant',  n:'Giant Slayer', d:'Bring down your first boss',               t:'s',s:60, e:'☠'},
    {id:'explore',n:'Explorer',     d:'Reach 5 different worlds',                 t:'s',s:60, e:'◍',goal:5,stat:'worlds'},
    {id:'conquer',n:'Conqueror',    d:'Defeat all 10 bosses',                     t:'g',s:250,e:'♛',big:1,goal:10,stat:'bosses'},
    {id:'sharp',  n:'Sharpshooter', d:'Score 4,000+ in a Range Drill',            t:'s',s:40, e:'◎'},
@@ -2775,10 +2791,10 @@ updHUD();
   function cineBusy(){return !!(window.CINE&&CINE.busy&&CINE.busy());}
 
   /* ---------------- persistence ---------------- */
-  var got={},stats={missions:0,worlds:[],bosses:[]},dly={day:-1,best:0,streak:0},loaded=false;
+  var got={},stats={missions:0,worlds:[],bosses:[],unseen:[]},dly={day:-1,best:0,streak:0},loaded=false;
   function rd(k){return Promise.resolve(store.getItem(k)).then(function(v){try{return v?JSON.parse(v):null;}catch(e){return null;}},function(){return null;});}
   Promise.all([rd('spacerange.medals'),rd('spacerange.mstats'),rd('spacerange.daily')]).then(function(a){
-    if(a[0])got=a[0];if(a[1]){stats.missions=a[1].missions||0;stats.worlds=a[1].worlds||[];stats.bosses=a[1].bosses||[];}
+    if(a[0])got=a[0];if(a[1]){stats.missions=a[1].missions||0;stats.worlds=a[1].worlds||[];stats.bosses=a[1].bosses||[];stats.unseen=a[1].unseen||[];}
     if(a[2])dly=a[2];loaded=true;updMenu();});
   function save(){try{store.setItem('spacerange.medals',JSON.stringify(got));store.setItem('spacerange.mstats',JSON.stringify(stats));store.setItem('spacerange.daily',JSON.stringify(dly));}catch(e){}}
   function addStat(k,v){if(stats[k].indexOf(v)<0){stats[k].push(v);save();}return stats[k].length;}
@@ -2815,13 +2831,13 @@ updHUD();
   var st=document.createElement('style');
   st.textContent=
    '.mic{display:inline-flex;align-items:center;justify-content:center;flex:none;border-radius:50%;color:#1a1206;font-style:normal;font-weight:900;text-shadow:0 1px 0 rgba(255,255,255,.4)}'+
-   '#mpip{position:fixed;z-index:16;left:calc(10px + env(safe-area-inset-left));top:calc(92px + env(safe-area-inset-top));width:136px;border-radius:14px;overflow:hidden;'+
-     'background:#070b15;border:1.5px solid var(--tc,#ffd23f);box-shadow:0 0 22px var(--tg,rgba(255,210,63,.45));transform:translateX(-130%);transition:transform .45s cubic-bezier(.2,.9,.25,1.15);pointer-events:none}'+
-   '#mpip.on{transform:none}#mpip .mv{position:relative;height:182px;background:radial-gradient(circle,#1b2740,#070b15);display:flex;align-items:center;justify-content:center}'+
-   '#mpip video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .4s}#mpip.done video{opacity:0}'+
-   '#mpip .mv .mic{transition:transform .5s cubic-bezier(.2,.9,.3,1.4);transform:scale(.0)}#mpip.art .mv .mic,#mpip.done .mv .mic{transform:scale(1)}'+
-   '#mpip .mt{padding:6px 8px 8px;text-align:left}#mpip .mk{font-size:8.5px;font-weight:900;letter-spacing:.18em;color:var(--tc)}'+
-   '#mpip .mn{font-size:14px;font-weight:900;color:#fff;margin-top:2px;line-height:1.1}#mpip .ms{font-size:10px;color:#ffd23f;margin-top:3px;font-weight:800}'+
+   '#mpip{position:fixed;z-index:16;left:calc(12px + env(safe-area-inset-left));bottom:calc(74px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;max-width:64vw;'+
+     'padding:5px 13px 5px 5px;border-radius:28px;background:rgba(7,11,21,.72);border:1px solid var(--tc,#ffd23f);box-shadow:0 0 12px var(--tg,rgba(255,210,63,.35));'+
+     'transform:translateX(-115%);opacity:0;transition:transform .4s cubic-bezier(.2,.9,.25,1.1),opacity .4s;pointer-events:none}'+
+   '#mpip.on{transform:none;opacity:1}#mpip .mk{font-size:8px;font-weight:900;letter-spacing:.16em;color:var(--tc)}'+
+   '#mpip .mn{font-size:12.5px;font-weight:900;color:#fff;line-height:1.15;white-space:nowrap}#mpip .ms{color:#ffd23f;font-weight:800;margin-left:5px;font-size:10.5px}'+
+   '.mwatch{margin-top:14px;pointer-events:auto;border:1px solid rgba(255,210,63,.6);background:rgba(255,210,63,.1);color:#ffd23f;border-radius:14px;padding:10px 18px;font:inherit;font-size:14px;font-weight:800;cursor:pointer}'+
+   '#medalsov .mc .mnew{font-size:8px;font-weight:900;letter-spacing:.14em;color:#04121a;background:#ffd23f;border-radius:6px;padding:1px 5px;margin-top:4px}'+
    '#mfull{position:fixed;inset:0;z-index:17;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;overflow:hidden}'+
    '#mfull.on{opacity:1;pointer-events:auto}#mfull video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .35s}'+
    '#mfull .art{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(60% 40% at 50% 42%,var(--tg,#334),#000)}'+
@@ -2853,7 +2869,7 @@ updHUD();
    '.dailyOver{margin-top:10px;font-size:13px;color:#cfe0ff}.dailyOver b{color:#ffd23f}';
   document.head.appendChild(st);
   function mk(tag,id,html,cls){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(html)e.innerHTML=html;document.body.appendChild(e);return e;}
-  var pip=mk('div','mpip','<div class="mv"></div><div class="mt"><div class="mk"></div><div class="mn"></div><div class="ms"></div></div>');
+  var pip=mk('div','mpip','<span class="pi"></span><div><div class="mk"></div><div class="mn"></div></div>');
   var fov=mk('div','mfull','<div class="art"></div><div class="lb t"></div><div class="lb b"></div><div class="cap"><div class="ci"></div><div class="sub"></div><div class="nm"></div><div class="st"></div></div><div class="dots"></div><div class="skip">TAP TO CONTINUE</div>');
   mk('div','fsvig');
   var dcov=mk('div','dcov','<canvas></canvas><div class="lost">SIGNAL LOST</div>');
@@ -2877,31 +2893,34 @@ updHUD();
     var m=byId[id];if(!loaded||!m||got[id])return;
     got[id]=Date.now();save();
     scrap+=m.s;try{store.setItem('spacerange.scrap',String(scrap));}catch(e){}updScrap();
-    vid('m_'+id);chime(m.t);haptic('success');
-    if(m.big&&running)bigQ.push(m);else pipQ.push(m);
+    chime(m.t);haptic('success');
+    if(stats.unseen.indexOf(id)<0){stats.unseen.push(id);save();}
+    if(m.big&&running){vid('m_'+id);bigQ.push(m);}else pipQ.push(m);
     updMenu();
   }
   function medalItem(m){var c=TIER[m.t][1];
     return {clip:'m_'+m.id,k:'MEDAL UNLOCKED  ·  '+TIER[m.t][0],n:m.n.toUpperCase(),s:m.d+'   ·   +'+m.s+' ⚙',acc:hexRgb(c),medal:m};}
 
-  /* ---------------- picture-in-picture card ---------------- */
+  /* ---------------- in-game medal toast (small, no video; the clip waits for the cabinet / end screen) ---------------- */
   var pipOn=null;
   function showPip(m){
-    var c=TIER[m.t][1],rgb=hexRgb(c);pip.style.setProperty('--tc',c);pip.style.setProperty('--tg','rgba('+rgb+',.45)');
-    var mv=pip.querySelector('.mv');mv.innerHTML=mic(m,92);paintAll(mv);
-    pip.querySelector('.mk').textContent='MEDAL · '+TIER[m.t][0];pip.querySelector('.mn').textContent=m.n;pip.querySelector('.ms').textContent='+'+m.s+' ⚙ SCRAP';
-    pip.classList.remove('done','art');void pip.offsetWidth;pip.classList.add('on');
-    banner('🏅 '+m.n.toUpperCase());
-    pipOn={m:m,t0:performance.now(),rec:vid('m_'+m.id),vOn:false};
+    var c=TIER[m.t][1],rgb=hexRgb(c);pip.style.setProperty('--tc',c);pip.style.setProperty('--tg','rgba('+rgb+',.35)');
+    var pi=pip.querySelector('.pi');pi.innerHTML=mic(m,36);paintAll(pi);
+    pip.querySelector('.mk').textContent='MEDAL · '+TIER[m.t][0];pip.querySelector('.mn').innerHTML=m.n+'<span class="ms">+'+m.s+' ⚙</span>';
+    pip.classList.remove('on');void pip.offsetWidth;pip.classList.add('on');
+    pipOn={m:m,t0:performance.now()};
   }
-  function pipTick(now){
-    var p=pipOn,t=(now-p.t0)/1000;
-    if(!p.vOn&&t<1.6&&p.rec.ok&&!p.rec.dead){p.vOn=true;var v=p.rec.v;p.rec.playing=true;pip.querySelector('.mv').appendChild(v);
-      try{v.currentTime=0;}catch(e){}var pr=v.play();if(pr&&pr.catch)pr.catch(function(){});}
-    if(!p.vOn&&t>=1.6&&!pip.classList.contains('art'))pip.classList.add('art');
-    if(t>3.9&&!pip.classList.contains('done'))pip.classList.add('done');
-    if(t>5.0){pip.classList.remove('on');pipOn=null;
-      setTimeout(function(){if(p.rec.v.parentNode)p.rec.v.parentNode.removeChild(p.rec.v);p.rec.playing=false;drop('m_'+p.m.id);},500);}
+  function pipTick(now){if((now-pipOn.t0)/1000>2.8){pip.classList.remove('on');pipOn=null;}}
+
+  /* new medals: watch their cinematics from the end screens or the cabinet */
+  function seen(id){var k=stats.unseen.indexOf(id);if(k>=0){stats.unseen.splice(k,1);save();}}
+  function watchNew(){var ids=stats.unseen.slice();if(!ids.length)return;
+    playSeq(ids.map(function(id){return medalItem(byId[id]);}),function(){ids.forEach(seen);updWatch();updMenu();},{wait:true});}
+  function updWatch(){
+    ['over','victory'].forEach(function(o){var host=el(o);if(!host)return;var b=host.querySelector('.mwatch');
+      if(!b){b=document.createElement('button');b.className='mwatch';b.onclick=function(e){e.stopPropagation();haptic('selection');watchNew();};
+        var anchor=o==='over'?el('againBtn'):el('vNG');anchor.parentNode.insertBefore(b,anchor);}
+      var n=stats.unseen.length;b.style.display=n?'inline-block':'none';b.textContent='🏅 Watch '+(n===1?'your new medal':n+' new medals');});
   }
 
   /* ---------------- full-screen sequence player ---------------- */
@@ -2927,6 +2946,7 @@ updHUD();
     nm.style.color='rgb('+Math.min(255,c[0]+90)+','+Math.min(255,c[1]+90)+','+Math.min(255,c[2]+90)+')';
     fov.querySelector('.st').textContent=it.s||'';
     fov.querySelector('.art').innerHTML='';
+    if(it.medal)seen(it.medal.id);
     f.it=it;f.rec=vid(it.clip);f.t0=performance.now();f.started=false;
     void cap.offsetWidth;cap.classList.add('in');
   }
@@ -3050,7 +3070,6 @@ updHUD();
     if(dailyPending){daily=dailyPending;dailyPending=null;
       if(daily.world>0){level=daily.world;wave=daily.world*WAVES_PER_LEVEL;}
       weaponIdx=daily.gun;el('wpn').textContent=WEAPONS[daily.gun].name;var im=el('wimg');if(im)im.removeAttribute('data-i');}
-    if(!got.first)vid('m_first');
   };
   var updOrig=update;
   update=function(dt){
@@ -3080,7 +3099,6 @@ updHUD();
     var wi=(level-1)%WORLDS.length;
     if(addStat('worlds',wi)>=5)award('explore');
     if(ngPlus>0)award('ngplus');
-    if(wave%WAVES_PER_LEVEL===0&&!got.giant)vid('m_giant');
     if(wi===WORLDS.length-1&&wave%WAVES_PER_LEVEL===1){END.forEach(function(e){vid(e.clip);});if(!got.conquer)vid('m_conquer');}
   };
   var erOrig=endRange;endRange=function(){var p=rangePts;erOrig.apply(this,arguments);if(p>=4000)award('sharp');};
@@ -3123,7 +3141,7 @@ updHUD();
   el('mClose').onclick=function(){mov.classList.add('hide');};
   function updMenu(){
     db.innerHTML='📅 Daily Challenge<span class="dsub">'+dailyLine()+'</span>';
-    mb.innerHTML='🏅 Medals  '+count()+'/'+MEDALS.length;
+    var nu=stats.unseen.length;mb.innerHTML='🏅 Medals  '+count()+'/'+MEDALS.length+(nu?'  ·  '+nu+' NEW':'');updWatch();
     if(!mov.classList.contains('hide'))buildMedals();
   }
   function buildMedals(){
@@ -3132,13 +3150,13 @@ updHUD();
     el('mGrid').innerHTML=MEDALS.map(function(m){var c=TIER[m.t][1],rgb=hexRgb(c),g=!!got[m.id];
       var prog=m.stat?(' · '+Math.min(m.goal,m.stat==='missions'?stats.missions:stats[m.stat].length)+'/'+m.goal):'';
       return '<div class="mc'+(g?' got':'')+'" data-id="'+m.id+'" style="--tc:'+c+';--tg:rgba('+rgb+',.18)">'+mic(m,58)+
-        '<div class="mn">'+m.n+'</div><div class="md">'+m.d+'</div><div class="mx">'+(g?TIER[m.t][0]:'LOCKED'+prog)+'</div></div>';}).join('');
+        '<div class="mn">'+m.n+'</div><div class="md">'+m.d+'</div><div class="mx">'+(g?TIER[m.t][0]:'LOCKED'+prog)+'</div>'+(stats.unseen.indexOf(m.id)>=0?'<div class="mnew">NEW</div>':'')+'</div>';}).join('');
     paintAll(el('mGrid'));
   }
   function openMedals(){mov.classList.remove('hide');buildMedals();}
   el('mGrid').addEventListener('click',function(e){var c=e.target.closest('.mc');if(!c)return;var m=byId[c.getAttribute('data-id')];
     if(!got[m.id]){c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake');haptic('warning');return;}
-    playSeq([medalItem(m)],null,{wait:true});});
+    playSeq([medalItem(m)],function(){updMenu();},{wait:true});});
   updMenu();
   setTimeout(function(){vid('daily');},4000);
   window.MEDALS={award:award,got:function(){return got;},stats:function(){return stats;},count:count,daily:function(){return daily;},dayInfo:dayInfo,
