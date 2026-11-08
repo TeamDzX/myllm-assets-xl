@@ -2663,6 +2663,14 @@ updHUD();
   document.body.appendChild(ov);
   var cap=ov.querySelector('.cap'),sub=ov.querySelector('.sub'),nm=ov.querySelector('.nm'),stl=ov.querySelector('.st');
 
+  /* Every clip's <video> lives INSIDE the (transparent) overlay from the moment it starts loading. iOS
+     web views won't load or keep buffering a muted video that isn't in the page, and a detached one is
+     the first to lose its buffer when another video plays (that's what ate the next world's fly-in after
+     a boss's defeat clip). The overlay opens straight away; the picture fades in only once the clip is
+     really playing, and if it hasn't started within 2.8 s the cut-in is dropped and the game carries on.
+     (fetch() is not an option: the MyLLM web view runs at a null origin.) */
+  var pool=document.createElement('div');pool.className='pool';ov.insertBefore(pool,ov.firstChild);
+  st.textContent+='#cine .pool{position:absolute;inset:0}#cine .pool video{opacity:0;transition:opacity .25s}#cine .pool video.front{opacity:1;z-index:1}';
   function clip(name){
     if(live[name])return live[name];
     var v=document.createElement('video'),rec={v:v,ok:false,dead:false,si:0,name:name};
@@ -2671,57 +2679,45 @@ updHUD();
     v.addEventListener('canplaythrough',chk);v.addEventListener('loadeddata',chk);v.addEventListener('progress',chk);
     v.addEventListener('loadedmetadata',function(){   // nudge strict webviews into buffering: play muted, then park at 0
       if(active&&active.rec===rec)return;var p=v.play();
-      if(p&&p.then)p.then(function(){if(!(active&&active.rec===rec)){v.pause();v.currentTime=0;}chk();}).catch(function(){});});
-    v.addEventListener('error',function(){if(++rec.si<SRCS.length){v.src=SRCS[rec.si]+name+'.mp4';v.load();}else rec.dead=true;});
+      if(p&&p.then)p.then(function(){if(!(active&&active.rec===rec)){v.pause();try{v.currentTime=0;}catch(e){}}chk();}).catch(function(){});});
+    v.addEventListener('playing',function(){var a=active;if(a&&a.rec===rec&&!a.started)begin(a);});
+    v.addEventListener('error',function(){if(++rec.si<SRCS.length){v.src=SRCS[rec.si]+name+'.mp4';v.load();}else{rec.dead=true;if(active&&active.rec===rec&&!active.started)hide();}});
+    pool.appendChild(v);
     v.src=SRCS[0]+name+'.mp4';v.load();
     live[name]=rec;order.push(name);
-    while(order.length>3){var o=order.shift(),r=live[o];if(active&&active.rec===r){order.push(o);break;}
-      delete live[o];r.v.removeAttribute('src');try{r.v.load();}catch(e){}}
+    while(order.length>4){var o=order.shift(),r=live[o];if(active&&active.rec===r){order.push(o);break;}
+      delete live[o];try{r.v.pause();r.v.removeAttribute('src');r.v.load();}catch(e){}if(r.v.parentNode)r.v.parentNode.removeChild(r.v);}
     return rec;
   }
   function show(rec,title,label,acc,story){
-    if(active||!rec||!rec.ok||rec.dead||!running||paused)return false;
+    if(active||!rec||rec.dead||!running||paused)return false;
     if(window.CINE_BLOCK&&CINE_BLOCK())return false;          // a medal / ending sequence owns the screen
-    var v=rec.v;ov.insertBefore(v,ov.firstChild);
-    try{v.currentTime=0;}catch(e){}
-    var p=v.play();if(p&&p.catch)p.catch(function(){hide();});
-    stl.textContent=story||'';
-    sub.textContent=label||'';nm.textContent=title||'';
+    stl.textContent=story||'';sub.textContent=label||'';nm.textContent=title||'';
     var c=acc||[255,255,255];nm.style.textShadow='0 0 18px rgba('+c[0]+','+c[1]+','+c[2]+',.9),0 0 42px rgba('+c[0]+','+c[1]+','+c[2]+',.5)';
     nm.style.color='rgb('+Math.min(255,c[0]+90)+','+Math.min(255,c[1]+90)+','+Math.min(255,c[2]+90)+')';
+    active={rec:rec,t0:performance.now(),dur:4.0,started:false};
+    var v=rec.v;try{v.currentTime=0;}catch(e){}
+    var p=v.play();if(p&&p.then)p.then(function(){var a=active;if(a&&a.rec===rec&&!a.started&&!v.paused&&v.readyState>=2)begin(a);}).catch(function(){});
     ov.classList.add('on');
-    var dur=Math.min(4.6,(isFinite(v.duration)&&v.duration>0)?v.duration:4.0);
-    active={rec:rec,t0:performance.now(),dur:dur};
     hitStopT=Math.max(hitStopT,9);tick();
     return true;
   }
-  // phones often stop buffering a clip that isn't playing (another video took the slot): instead of
-  // skipping it, hold the game for up to 2.5 s while it starts, then play it
-  var waiting=null;
-  function showWait(rec,a,b,c,d){
-    if(!rec||rec.dead)return false;
-    if(rec.ok)return show(rec,a,b,c,d);
-    if(active||waiting||!running||paused||(window.CINE_BLOCK&&CINE_BLOCK()))return false;
-    var v=rec.v,done=false;waiting=rec;hitStopT=Math.max(hitStopT,9);
-    function fin(ok){if(done)return;done=true;waiting=null;clearTimeout(to);v.removeEventListener('playing',go);v.removeEventListener('canplay',go);
-      hitStopT=0;if(ok){rec.ok=true;show(rec,a,b,c,d);}else if(pendingVictory&&!active){pendingVictory=false;victory();}}
-    function go(){fin(true);}
-    v.addEventListener('playing',go);v.addEventListener('canplay',go);
-    try{var p=v.play();if(p&&p.catch)p.catch(function(){});}catch(e){}
-    var to=setTimeout(function(){fin(false);},2500);
-    return true;
+  function begin(a){
+    var v=a.rec.v;a.started=true;a.t0=performance.now();a.dur=Math.min(4.6,(isFinite(v.duration)&&v.duration>0)?v.duration:4.0);
+    v.classList.add('front');
   }
+  var showWait=show,waiting=null;
   function tick(){
     if(!active)return;
     var t=(performance.now()-active.t0)/1000;
-    if(!running||paused||document.hidden||t>active.dur-0.3){hide();return;}
+    if(!running||paused||document.hidden||(active.started?t>active.dur-0.3:t>2.8)){hide();return;}
     hitStopT=Math.max(hitStopT,9);requestAnimationFrame(tick);
   }
   function hide(){
     if(!active)return;var v=active.rec.v;active=null;
     if(pendingVictory){pendingVictory=false;setTimeout(function(){if(running)victory();},300);}
     hitStopT=0;ov.classList.remove('on');
-    setTimeout(function(){if(!active){try{v.pause();}catch(e){}if(v.parentNode===ov)ov.removeChild(v);}},400);
+    setTimeout(function(){if(!active||active.rec.v!==v){try{v.pause();}catch(e){}v.classList.remove('front');}},400);
   }
   ov.addEventListener('pointerdown',function(e){e.preventDefault();e.stopPropagation();hide();});
 
@@ -2802,19 +2798,24 @@ updHUD();
 
   /* ---------------- clips ---------------- */
   var vids={};
+  var vpool=null;
+  function park(v){if(vpool){v.style.cssText='width:2px;height:2px';vpool.appendChild(v);}else if(v.parentNode)v.parentNode.removeChild(v);}
   function vid(name){
+    // the element lives in the page (an invisible pool) from the start: iOS won't buffer detached videos
     if(vids[name])return vids[name];
     var v=document.createElement('video'),rec={v:v,ok:false,dead:false,si:0};
     v.muted=true;v.defaultMuted=true;v.playsInline=true;v.setAttribute('playsinline','');v.setAttribute('muted','');v.preload='auto';
     function chk(){if(v.readyState>=3)rec.ok=true;}
     v.addEventListener('canplaythrough',chk);v.addEventListener('loadeddata',chk);v.addEventListener('progress',chk);v.addEventListener('canplay',chk);
     v.addEventListener('loadedmetadata',function(){if(rec.playing)return;var p=v.play();
-      if(p&&p.then)p.then(function(){if(!rec.playing){v.pause();v.currentTime=0;}chk();}).catch(function(){});});
+      if(p&&p.then)p.then(function(){if(!rec.playing){v.pause();try{v.currentTime=0;}catch(e){}}chk();}).catch(function(){});});
     v.addEventListener('error',function(){if(++rec.si<BASE.length){v.src=BASE[rec.si]+name+'.mp4';v.load();}else rec.dead=true;});
+    if(!vpool){vpool=document.createElement('div');vpool.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;overflow:hidden;pointer-events:none;z-index:0';document.body.appendChild(vpool);}
+    v.style.cssText='width:2px;height:2px';vpool.appendChild(v);
     v.src=BASE[0]+name+'.mp4';v.load();
     vids[name]=rec;return rec;
   }
-  function drop(name){var r=vids[name];if(!r)return;delete vids[name];try{r.v.pause();r.v.removeAttribute('src');r.v.load();}catch(e){}}
+  function drop(name){var r=vids[name];if(!r)return;delete vids[name];try{r.v.pause();r.v.removeAttribute('src');r.v.load();}catch(e){}if(r.v.parentNode)r.v.parentNode.removeChild(r.v);}
 
   /* ---------------- medal art: Blender sprite sheet, with a CSS fallback ---------------- */
   var sprite=new Image(),spriteOK=false;
@@ -2866,7 +2867,11 @@ updHUD();
    '#medalsov .mc .md{font-size:10px;line-height:1.3;color:#9fb0cc;margin-top:3px;min-height:26px}#medalsov .mc .mx{font-size:9px;font-weight:900;letter-spacing:.14em;margin-top:4px;color:var(--tc)}'+
    '#medalsov .mc:not(.got) .mic{filter:grayscale(1) brightness(.5) contrast(.9);opacity:.8}#medalsov .mc:not(.got) .mx{color:#6c7894}#medalsov .mc.shake{animation:mshk .35s}'+
    '@keyframes mshk{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}'+
-   '.dailyOver{margin-top:10px;font-size:13px;color:#cfe0ff}.dailyOver b{color:#ffd23f}';
+   '.dailyOver{margin-top:10px;font-size:13px;color:#cfe0ff}.dailyOver b{color:#ffd23f}'+
+   '#start{justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(58px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))}'+
+   '#start>:first-child{margin-top:auto}#start>:last-child{margin-bottom:auto}#start .title{font-size:40px}#start .subtitle{margin-top:8px}#start #startBtn{margin-top:18px}'+
+   '#start .mrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:min(330px,90vw);margin-top:12px}'+
+   '#start .mrow .big{margin:0;padding:11px 6px;font-size:14px;border-radius:13px;line-height:1.2}#start .mrow .dsub{font-size:9.5px}#start .hstable{margin-top:12px}#start .tiny{margin-top:12px}';
   document.head.appendChild(st);
   function mk(tag,id,html,cls){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(html)e.innerHTML=html;document.body.appendChild(e);return e;}
   var pip=mk('div','mpip','<span class="pi"></span><div><div class="mk"></div><div class="mn"></div></div>');
@@ -2934,7 +2939,7 @@ updHUD();
   }
   function nextShot(){
     var f=full;if(!f)return;
-    if(f.rec){var ov=f.rec.v;f.rec.playing=false;try{ov.pause();}catch(e){}setTimeout(function(){if(ov.parentNode===fov&&!(full&&full.rec&&full.rec.v===ov))fov.removeChild(ov);},400);}
+    if(f.rec){var ov=f.rec.v;f.rec.playing=false;try{ov.pause();}catch(e){}setTimeout(function(){if(ov.parentNode===fov&&!(full&&full.rec&&full.rec.v===ov))park(ov);},400);}
     f.i++;f.rec=null;f.art=false;
     if(f.i>=f.items.length){endSeq();return;}
     var it=f.items[f.i],cap=fov.querySelector('.cap');cap.classList.remove('in');
@@ -2951,7 +2956,7 @@ updHUD();
     void cap.offsetWidth;cap.classList.add('in');
   }
   function startClip(){
-    var f=full,v=f.rec.v;f.started=true;f.rec.playing=true;fov.insertBefore(v,fov.querySelector('.lb'));
+    var f=full,v=f.rec.v;f.started=true;f.rec.playing=true;v.style.cssText='';fov.insertBefore(v,fov.querySelector('.lb'));
     try{v.currentTime=0;}catch(e){}var p=v.play();if(p&&p.catch)p.catch(function(){showArt();});
     f.dur=Math.min(4.6,(isFinite(v.duration)&&v.duration>0)?v.duration:4.0)-0.25;f.t0=performance.now();
   }
@@ -2970,7 +2975,7 @@ updHUD();
   }
   function endSeq(){
     var f=full;if(!f)return;full=null;
-    if(f.rec){var v=f.rec.v;f.rec.playing=false;setTimeout(function(){try{v.pause();}catch(e){}if(v.parentNode===fov)fov.removeChild(v);},400);}
+    if(f.rec){var v=f.rec.v;f.rec.playing=false;setTimeout(function(){try{v.pause();}catch(e){}if(v.parentNode===fov)park(v);},400);}
     f.items.forEach(function(it){if(it.medal)drop(it.clip);});
     fov.classList.remove('on');
     if(f.freeze)hitStopT=0;
@@ -3135,7 +3140,8 @@ updHUD();
   var rb=el('rangeBtn');
   var db=document.createElement('button');db.className='big alt mbtn';db.id='dailyBtn';
   var mb=document.createElement('button');mb.className='big alt mbtn';mb.id='medalBtn';
-  rb.after(db);db.after(mb);
+  var row=document.createElement('div');row.className='mrow';var ab=el('armBtn');ab.parentNode.insertBefore(row,ab);
+  row.appendChild(ab);row.appendChild(rb);row.appendChild(db);row.appendChild(mb);
   db.onclick=function(){haptic('selection');startDaily();};
   mb.onclick=function(){haptic('selection');openMedals();};
   el('mClose').onclick=function(){mov.classList.add('hide');};
