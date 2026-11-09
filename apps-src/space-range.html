@@ -3248,7 +3248,7 @@ updHUD();
   /* ---------------- Daily Challenge ---------------- */
   var daily=null,dailyPending=null;
   function dayNum(){var d=new Date();return Math.floor((d.getTime()-d.getTimezoneOffset()*60000)/864e5);}
-  function dayInfo(){var n=dayNum(),h=Math.imul(n^0x5bd1e995,2654435761)>>>0;h^=h>>>15;h=Math.imul(h,0x2c1b3c6d)>>>0;h^=h>>>12;
+  function dayInfo(){var n=dayNum(),h=Math.imul(n^0x5bd1e995,2654435761)>>>0;h^=h>>>15;h=Math.imul(h,0x2c1b3c6d)>>>0;h=(h^(h>>>12))>>>0;   // keep it unsigned: a negative h picked no world on half of all days
     return {day:n,world:h%WORLDS.length,gun:1+((h>>>8)%(WEAPONS.length-1))};}
   function dailyLine(){var d=dayInfo(),s=(dly.day===d.day||dly.day===d.day-1)?dly.streak:0;
     return WORLDS[d.world].name+' · '+WEAPONS[d.gun].name+(s?(' · 🔥'+s):'');}
